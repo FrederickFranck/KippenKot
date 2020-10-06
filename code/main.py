@@ -13,6 +13,7 @@ in1 = "P11"
 in2 = "P10"
 in3 = "P9"
 in4 = "P8"
+dht_pin = "P22"
 
 #snelheid variable van 1 tot 100
 speed = 100
@@ -36,59 +37,70 @@ button = Pin('P18', mode = Pin.IN)
 pwm = PWM(0, frequency=5000)
 
 #creer een pwm kaneel op pin enableA met een duty cycle van 0
-#gate_speed = pwm.channel(0, pin=enableA, duty_cycle=0)
+gate_speed = pwm.channel(0, pin=enableA, duty_cycle=0)
 fan_speed = pwm.channel(0, pin=enableB, duty_cycle=0)
+
+
+
+hx711 = HX711('P4', 'P5')
+
+hx711.tare()
+
+
+
 def main():
+    print('start')
+    gate_open.value(0)
+    enable_gate.value(0)
     while True:
-        print(button())
-
-    '''fan_1.value(1)
-    #enable_fan.value(1)
-    fan_speed.duty_cycle(0)
+        read_dht()
 
 
-    hx711 = HX711('P9', 'P10')
 
-    hx711.tare()
-    print("yes")
-    while True:
-        th = DTH('P22',1)
-        result = th.read()
-        if result.is_valid():
-            print('Temperature: {:3.2f}'.format(result.temperature/1.0))
-            print('Humidity: {:3.2f}'.format(result.humidity/1.0))
+def read_load_cell():
+    value = hx711.read()
+    value = hx711.get_value()
+    print(value)
+    print("ok")
 
-        value = hx711.read()
-        value = hx711.get_value()
-        print(value)
-        print("ok")
 
-        '''
-    '''
-    open_gate(speed)
-    time.sleep(5)
-    close_gate(speed)
-    '''
+def read_dht():
+    th = DTH(dht_pin,1)
+    result = th.read()
+    if result.is_valid():
+        print('Temperature: {:3.2f}'.format(result.temperature/1.0))
+        print('Humidity: {:3.2f}'.format(result.humidity/1.0))
+    else:
+        print("Invalid Result")
 
-'''
+def start_fan():
+    fan_2.value(0)
+    fan_1.value(1)
+    enable_fan.value(1)
+
+def stop_fan():
+    enable_fan.value(0)
+    fan_2.value(0)
+    fan_1.value(0)
+
+
 def open_gate(speed=100):
     gate_open.value(1)
-    gate_speed.duty_cycle(speed/100)
-    time.sleep(5) #hoelang het duurt om de poort open te doen
+    enable_gate.value(1)
+    time.sleep(10) #hoelang het duurt om de poort open te doen
     stop_gate()
 
 def close_gate(speed=100):
     gate_close.value(1)
-    gate_speed.duty_cycle(speed/100)
+    enable_gate.value(1)
     time.sleep(5) #hoelang het duurt om de poort dicht te doen
     stop_gate()
 
 
 def stop_gate():
-    gate_speed.duty_cycle(0)
+    enable_gate.value(0)
     gate_close.value(0)
     gate_open.value(0)
-'''
 
 if __name__ == "__main__":
     main()
