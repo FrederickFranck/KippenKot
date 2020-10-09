@@ -1,98 +1,172 @@
 import pycom
+import time
 from machine import Pin
 from machine import PWM
-import time
 from dth import DTH
 from hx711 import HX711
 
 
-#Pins op van de pycom
+#GPIO pins laden uit de config file
+
 enableA = "P12"
 enableB = "P7"
 in1 = "P11"
 in2 = "P10"
 in3 = "P9"
 in4 = "P8"
+
 dht_pin = "P22"
 data_pin = "P6"
 clk_pin = "P5"
 switch_pin = "P13"
 
+led_pin_1 = "P21"
+led_pin_2 = "P20"
+led_pin_3 = "P19"
 
-#initialiseer alle pins van de pycom
-enable_gate =   Pin(enableA, mode=Pin.OUT)
-gate_open =     Pin(in2, mode=Pin.OUT)
-gate_close =    Pin(in1, mode=Pin.OUT)
+#Instelling laden uit config file
+TRESHOLD_TEMP = 24
+SLEEP_DURATION = 10
+LOAD_OFFSET = 7
+EGG_WEIGHT = 21000
+EGG_COUNT = 0
 
-enable_fan =   Pin(enableB, mode=Pin.OUT)
+#initialiseer alle pins van de motor controller
+enable_gate = Pin(enableA, mode=Pin.OUT)
+gate_open = Pin(in2, mode=Pin.OUT)
+gate_close = Pin(in1, mode=Pin.OUT)
+
+enable_fan = Pin(enableB, mode=Pin.OUT)
 fan_1 = Pin(in3, mode=Pin.OUT)
 fan_2 = Pin(in4, mode=Pin.OUT)
 
+
+#leds
+led_1 = Pin(led_pin_1, mode=Pin.OUT)
+led_2 = Pin(led_pin_2, mode=Pin.OUT)
+led_3 = Pin(led_pin_3, mode=Pin.OUT)
+led_1.value(0)
+led_2.value(0)
+led_3.value(0)
 #schakelaar voor de poort open te doen
 switch = Pin(switch_pin, mode = Pin.IN)
+switch_value = switch.value()
 
-#maak een pwm aan met timer 0 & frequentie van 5KHz
-pwm = PWM(0, frequency=5000)
+#load cell amplifier
+load_amplifier = HX711(data_pin, clk_pin)
+current_weight = 0
+#dht sensor object aanmaken
+dht_sensor = DTH(dht_pin,1)
 
-#creer een pwm kaneel op pin enableA met een duty cycle van 0
-gate_speed = pwm.channel(0, pin=enableA, duty_cycle=0)
-fan_speed = pwm.channel(0, pin=enableB, duty_cycle=0)
-#deze worden niet gebruikt want de motoren bewegen pas vanaf 90% duty cycle
-
-#de load cell amplifier
-load_amp = HX711(data_pin, clk_pin)
-
-#wordt gebruikt om de load cell waarde op null te zetten
-weight_offset = 969850
 
 def main():
     #kijkt of de poort open of dicht is en sluit/opent deze als de schakelaar gebruikt wordt (zie video)
-    gateIsOpen = False
+
+    gate_is_open = False
     while True:
-        if(switch.value() and gateIsOpen):
-            print("gate is closing")
-            close_gate()
-            isOpen = False
-        elif(switch.value() and (not gateIsOpen)):
-            print("gate is opening")
-            open_gate()
-            isOpen = True
+        check_temperature()
+        load_init()
+        if(switch_changed()):
+            if(gate_is_open):
+                print("gate is closing")
+                close_gate()
+                gate_is_open = False
+            elif(not gate_is_open):
+                print("gate is opening")
+                open_gate()
+                gate_is_open = True
+        check_eggs()
+        #print(get_weight_difference())
 
-        #print(load_amp.get_value() + weight_offset )
-        #read_dht()
 
-#WIP
-#functie om het gewicht te lezen van de load cell
-def weight():
-    while True:
-        time.sleep(5)
-        first = load_amp.get_value() + 87000
-        print("go")
-        time.sleep(5)
-        second = load_amp.get_value() + 87000
-        print("off")
-        time.sleep(5)
-        diff = first - second
-        print("gewicht   {}".format(diff/1500))
+def check_eggs():
+    global EGG_COUNT
+    diff = get_weight_difference()
+    abs_diff = abs(diff)
+    quotient = abs_diff / EGG_WEIGHT
+    eggs = int(quotient)
+    remainder = quotient - eggs
+    if (remainder >= 0.75):
+        eggs = eggs + 1
+    if(diff > 0):
+        EGG_COUNT = EGG_COUNT + eggs
+    if(diff <= 0):
+        EGG_COUNT = EGG_COUNT - eggs
 
-#leest de waardes van dht en print deze
-def read_dht():
-    th = DTH(dht_pin,1)
-    result = th.read()
-    if result.is_valid():
-        print('Temperature: {:3.2f}'.format(result.temperature/1.0))
-        print('Humidity: {:3.2f}'.format(result.humidity/1.0))
+    print(EGG_COUNT)
+
+    update_egg_counter()
+
+
+def update_egg_counter():
+    global EGG_COUNT
+    led_1.value(((EGG_COUNT >> 0) % 2))
+    led_2.value(((EGG_COUNT >> 1) % 2))
+    led_3.value(((EGG_COUNT >> 2) % 2))
+
+
+def get_weight():
+    global load_amplifier
+    readings = []
+    for i in range(10):
+        readings.append(load_amplifier.get_value())
+    average = (sum(readings) / len(readings))
+    return average
+
+def load_init():
+    global current_weight
+    current_weight = get_weight()
+
+
+def get_weight_difference():
+    global current_weight
+    old_weight = current_weight
+    current_weight = get_weight()
+    return (old_weight - current_weight)
+
+
+#kijkt of de waarde van de switch verandert is sinds de vorige keer
+def switch_changed():
+    #print("switch check")
+    global switch_value
+    old_value = switch_value
+    switch_value = switch.value()
+    #print("old {}  \t new {}".format(old_value,switch_value))
+    if(old_value == switch_value):
+        return False
     else:
-        print("Invalid Result")
+        return True
+
+#leest de temperatuur van de dht sensor
+def get_temperature():
+    global dht_sensor
+    result = dht_sensor.read()
+    if result.is_valid():
+        temperature = result.temperature
+        return temperature
+    else:
+        return None
+
+#kijkt of de temperatuur te hoog is en zet dan de ventilator aan
+def check_temperature():
+    temp = get_temperature()
+    if(temp is not None):
+        #print("temp {}".format(temp))
+        if(temp >= TRESHOLD_TEMP):
+            start_fan()
+        else:
+            stop_fan()
 
 #start de ventilator
 def start_fan():
-    fan_2.value(0)
-    fan_1.value(1)
-    enable_fan.value(1)
+    #print("fan is going")
+    fan_2.value(1)
+    fan_1.value(0)
+    enable_fan.value(0)
 
 #stopt de ventilator
 def stop_fan():
+    #print("fan is stopped")
     enable_fan.value(0)
     fan_2.value(0)
     fan_1.value(0)
