@@ -1,5 +1,6 @@
 import pycom
 import time
+import machine
 from machine import Pin
 from machine import PWM
 from dth import DTH
@@ -24,6 +25,14 @@ led_pin_1 = "P21"
 led_pin_2 = "P20"
 led_pin_3 = "P19"
 
+#we gaan 2 bump switches toevoegen eentje boven & eentje onderaan de poort
+#zo kunnen we kijken of de poort open of toe is adhv van deze switches
+bump_open = "P1"
+bump_closed = "P2"
+
+bump_switch_open = Pin(bump_open, mode = Pin.IN)
+bump_switch_closed = Pin(bump_closed, mode = Pin.IN)
+
 #Constanten
 #max temperatuur voordat de ventilator aangaat
 TRESHOLD_TEMP = 24
@@ -31,6 +40,10 @@ TRESHOLD_TEMP = 24
 EGG_WEIGHT = 21000
 #het aantal eieren
 EGG_COUNT = 0
+
+#hoelang de microcontroller in deepsleep gaat
+#60000 zijn 60 seconden of 1 minuut , dus nu gaat de controller 5 mintuten slapen
+SLEEP_TIME = 60000 * 5
 
 #initialiseer alle pins van de motor controller
 enable_gate = Pin(enableA, mode=Pin.OUT)
@@ -54,6 +67,8 @@ led_3.value(0)
 #schakelaar voor de poort open te doen
 switch = Pin(switch_pin, mode = Pin.IN)
 switch_value = switch.value()
+#stelt de schakelaar in als een wake up pin
+machine.pin_sleep_wakeup(pins=[switch_pin], mode=machine.WAKEUP_ANY_HIGH, enable_pull=True)
 
 #load cell amplifier
 load_amplifier = HX711(data_pin, clk_pin)
@@ -63,19 +78,28 @@ current_weight = 0
 dht_sensor = DTH(dht_pin,1)
 
 
+
+#Als de controller uit slaapstand gehaalt is door een externe interrupt (in ons geval de schakelaar voor de poort)
+#gaat hij de poort open of dicht doen en terug verder slapen voor de resterende tijd
+#als de controller uit slaapstand gehaalt is omdat de tijd op is gaat hij alle sensoren uitmeten en terug in slaapstand gaan
 def main():
-    gate_is_open = False
-    while True:
-        check_temperature()
-        load_init()
-        if(switch_changed()):
-            if(gate_is_open):
+    (wake_reason, gpio_list) = machine.wake_reason()
+    if (wake_reason == machine.PIN_WAKE):
+        if(bump_switch_open.value(1)):
+            close_gate()
+        elif(bump_switch_closed.value(1)):
+            open_gate()
+        machine.deepsleep(machine.remaining_sleep_time()))
+    else:
+        if(switch.value(1)):
+            if(bump_switch_open.value(1)):
                 close_gate()
-                gate_is_open = False
-            elif(not gate_is_open):
+            elif(bump_switch_closed.value(1)):
                 open_gate()
-                gate_is_open = True
+        load_init()
         check_eggs()
+        check_temperature()
+        machine.deepsleep(SLEEP_TIME)
 
 
 
