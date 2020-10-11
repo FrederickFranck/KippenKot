@@ -6,7 +6,7 @@ from dth import DTH
 from hx711 import HX711
 
 
-#GPIO pins laden uit de config file
+#GPIO pins van de pycom
 
 enableA = "P12"
 enableB = "P7"
@@ -24,11 +24,12 @@ led_pin_1 = "P21"
 led_pin_2 = "P20"
 led_pin_3 = "P19"
 
-#Instelling laden uit config file
+#Constanten
+#max temperatuur voordat de ventilator aangaat
 TRESHOLD_TEMP = 24
-SLEEP_DURATION = 10
-LOAD_OFFSET = 7
+#"gewicht" van één ei
 EGG_WEIGHT = 21000
+#het aantal eieren
 EGG_COUNT = 0
 
 #initialiseer alle pins van de motor controller
@@ -48,6 +49,8 @@ led_3 = Pin(led_pin_3, mode=Pin.OUT)
 led_1.value(0)
 led_2.value(0)
 led_3.value(0)
+
+
 #schakelaar voor de poort open te doen
 switch = Pin(switch_pin, mode = Pin.IN)
 switch_value = switch.value()
@@ -55,56 +58,36 @@ switch_value = switch.value()
 #load cell amplifier
 load_amplifier = HX711(data_pin, clk_pin)
 current_weight = 0
+
 #dht sensor object aanmaken
 dht_sensor = DTH(dht_pin,1)
 
 
 def main():
-    #kijkt of de poort open of dicht is en sluit/opent deze als de schakelaar gebruikt wordt (zie video)
-
     gate_is_open = False
     while True:
         check_temperature()
         load_init()
         if(switch_changed()):
             if(gate_is_open):
-                print("gate is closing")
                 close_gate()
                 gate_is_open = False
             elif(not gate_is_open):
-                print("gate is opening")
                 open_gate()
                 gate_is_open = True
         check_eggs()
-        #print(get_weight_difference())
 
 
-def check_eggs():
-    global EGG_COUNT
-    diff = get_weight_difference()
-    abs_diff = abs(diff)
-    quotient = abs_diff / EGG_WEIGHT
-    eggs = int(quotient)
-    remainder = quotient - eggs
-    if (remainder >= 0.75):
-        eggs = eggs + 1
-    if(diff > 0):
-        EGG_COUNT = EGG_COUNT + eggs
-    if(diff <= 0):
-        EGG_COUNT = EGG_COUNT - eggs
 
-    print(EGG_COUNT)
-
-    update_egg_counter()
-
-
+#regelt de leds op basis van het aantal eieren
+#maakt gebruik van bitshifting om het aantal eieren in binair om te zetten
 def update_egg_counter():
     global EGG_COUNT
     led_1.value(((EGG_COUNT >> 0) % 2))
     led_2.value(((EGG_COUNT >> 1) % 2))
     led_3.value(((EGG_COUNT >> 2) % 2))
 
-
+#geeft het huidige gewicht terug op basis van een gemiddelde van verschillende metingen
 def get_weight():
     global load_amplifier
     readings = []
@@ -113,11 +96,12 @@ def get_weight():
     average = (sum(readings) / len(readings))
     return average
 
+#stelt het huidige gewicht in
 def load_init():
     global current_weight
     current_weight = get_weight()
 
-
+#geeft het verschil in gewicht terug
 def get_weight_difference():
     global current_weight
     old_weight = current_weight
@@ -125,13 +109,29 @@ def get_weight_difference():
     return (old_weight - current_weight)
 
 
+#probeert het aantal eieren te berekenen op basis van het verschil in gewicht
+#omdat niet alle eieren hetzelfde wegen rekenen we rekenen we ook met een marge van 15%
+def check_eggs():
+    global EGG_COUNT
+    diff = get_weight_difference()
+    abs_diff = abs(diff)
+    quotient = abs_diff / EGG_WEIGHT
+    eggs = int(quotient)
+    remainder = quotient - eggs
+    if (remainder >= 0.85):
+        eggs = eggs + 1
+    if(diff > 0):
+        EGG_COUNT = EGG_COUNT + eggs
+    if(diff <= 0):
+        EGG_COUNT = EGG_COUNT - eggs
+    update_egg_counter()
+
+
 #kijkt of de waarde van de switch verandert is sinds de vorige keer
 def switch_changed():
-    #print("switch check")
     global switch_value
     old_value = switch_value
     switch_value = switch.value()
-    #print("old {}  \t new {}".format(old_value,switch_value))
     if(old_value == switch_value):
         return False
     else:
@@ -151,7 +151,6 @@ def get_temperature():
 def check_temperature():
     temp = get_temperature()
     if(temp is not None):
-        #print("temp {}".format(temp))
         if(temp >= TRESHOLD_TEMP):
             start_fan()
         else:
@@ -159,14 +158,12 @@ def check_temperature():
 
 #start de ventilator
 def start_fan():
-    #print("fan is going")
     fan_2.value(1)
     fan_1.value(0)
     enable_fan.value(0)
 
 #stopt de ventilator
 def stop_fan():
-    #print("fan is stopped")
     enable_fan.value(0)
     fan_2.value(0)
     fan_1.value(0)
